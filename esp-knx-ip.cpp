@@ -81,8 +81,10 @@ void ESPKNXIP::restore_from_eeprom()
 
     address += sizeof(uint64_t);
     EEPROM.get(address++, registered_callback_assignments);
+#if MAX_CALLBACK_ASSIGNMENTS < 255
     if (registered_callback_assignments > MAX_CALLBACK_ASSIGNMENTS)
         registered_callback_assignments = 0;
+#endif
 
     for (uint8_t i = 0; i < MAX_CALLBACK_ASSIGNMENTS; ++i)
     {

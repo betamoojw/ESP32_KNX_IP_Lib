@@ -16,6 +16,8 @@ bool NetworkUDP::fail = false;
 uint16_t NetworkUDP::incoming_port = 3671, NetworkUDP::destination_port = 0;
 IPAddress NetworkUDP::sender(192,168,1,20);
 static unsigned checks=0, callbacks=0, discoveries=0;
+static unsigned capacity_deliveries = 0;
+static void capacity_callback(const message_t &, void *) { ++capacity_deliveries; }
 #define CHECK(x) do { ++checks; if (!(x)) { fprintf(stderr,"%s:%d: %s\n",__FILE__,__LINE__,#x); exit(1); } } while(0)
 static void callback(message_t const &msg, void *) {
     ++callbacks;
@@ -138,5 +140,27 @@ int main() {
     knx.callback_assign(id,ga);
     knx.stop(); CHECK(knx.start_routing() == Result::Ok);
     receive(golden,sizeof(golden)); CHECK(callbacks == 3);
+    // Exercise the final valid ID, full subscription table, and persisted layout.
+    ESPKNXIP capacity;
+    capacity.load();
+    for (unsigned i = 0; i < MAX_CALLBACKS; ++i)
+        CHECK(capacity.callback_register("capacity", capacity_callback) == i);
+    CHECK(capacity.callback_register("overflow", capacity_callback) == callback_id_t(-1));
+    for (unsigned i = 0; i < MAX_CALLBACK_ASSIGNMENTS; ++i)
+        capacity.callback_assign(callback_id_t(i % MAX_CALLBACKS), ESPKNXIP::GA_to_address(1,0,i));
+    capacity.save_to_eeprom();
+    CHECK(EEPROM.data[8] == MAX_CALLBACK_ASSIGNMENTS);
+    const address_t last = ESPKNXIP::GA_to_address(1,0,MAX_CALLBACK_ASSIGNMENTS-1);
+    const callback_id_t last_id = (MAX_CALLBACK_ASSIGNMENTS-1) % MAX_CALLBACKS;
+    capacity.callback_unassign(last_id, last);
+    capacity.restore_from_eeprom();
+    CHECK(capacity.start_routing() == Result::Ok);
+    memcpy(NetworkUDP::incoming, golden, sizeof(golden));
+    NetworkUDP::incoming[12] = last.bytes.high;
+    NetworkUDP::incoming[13] = last.bytes.low;
+    NetworkUDP::incoming_size = sizeof(golden);
+    capacity.loop();
+    CHECK(capacity_deliveries == 1);
+    capacity.stop();
     printf("PASS: %u Arduino client checks\n",checks);
 }

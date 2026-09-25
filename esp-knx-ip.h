@@ -9,17 +9,41 @@
 
 /**
  * CONFIG
- * All MAX_ values must not exceed 255 (1 byte, except MAC_CONFIG_SPACE which can go up to 2 bytes, so 0xffff in theory) and must not be negative!
- * Config space is restriced by EEPROM_SIZE (default 1024).
- * Required EEPROM size is 8 + MAX_GA_CALLBACKS * 3 + 2 + MAX_CONFIG_SPACE which is 552 by default
+ * Override these values with build flags applied to ALL library/application files.
+ * Table capacities: 1..255 (IDs are one byte; 255 is the invalid-ID sentinel).
+ * Config space: 1..0xffff bytes, subject to EEPROM capacity and available RAM.
+ * EEPROM layout: magic (8), assignment count (1), assignments (3 each),
+ * physical address (2), custom config bytes. Defaults require 907 bytes.
+ * Changing persisted capacities invalidates the old EEPROM configuration.
  */
-#define EEPROM_SIZE               1024 // [Default 1024]
-#define MAX_CALLBACK_ASSIGNMENTS  10 // [Default 10] Maximum number of group address callbacks that can be stored
-#define MAX_CALLBACKS             10 // [Default 10] Maximum number of callbacks that can be stored
-#define MAX_CONFIGS               20 // [Default 20] Maximum number of config items that can be stored
-#define MAX_CONFIG_SPACE          0x0200 // [Default 0x0200] Maximum number of bytes that can be stored for custom config
+#ifndef EEPROM_SIZE
+#define EEPROM_SIZE               1024
+#endif
+#ifndef MAX_CALLBACK_ASSIGNMENTS
+#define MAX_CALLBACK_ASSIGNMENTS  128 // Group-address subscriptions; callbacks may be shared.
+#endif
+#ifndef MAX_CALLBACKS
+#define MAX_CALLBACKS             128 // Independently registered callback handlers.
+#endif
+#ifndef MAX_CONFIGS
+#define MAX_CONFIGS               20
+#endif
+#ifndef MAX_CONFIG_SPACE
+#define MAX_CONFIG_SPACE          0x0200
+#endif
+#ifndef MAX_FEEDBACKS
+#define MAX_FEEDBACKS             20
+#endif
 
-#define MAX_FEEDBACKS             20 // [Default 20] Maximum number of feedbacks that can be shown
+static_assert(MAX_CALLBACK_ASSIGNMENTS >= 1 && MAX_CALLBACK_ASSIGNMENTS <= 255,
+              "MAX_CALLBACK_ASSIGNMENTS must be in 1..255");
+static_assert(MAX_CALLBACKS >= 1 && MAX_CALLBACKS <= 255, "MAX_CALLBACKS must be in 1..255");
+static_assert(MAX_CONFIGS >= 1 && MAX_CONFIGS <= 255, "MAX_CONFIGS must be in 1..255");
+static_assert(MAX_FEEDBACKS >= 1 && MAX_FEEDBACKS <= 255, "MAX_FEEDBACKS must be in 1..255");
+static_assert(MAX_CONFIG_SPACE >= 1 && MAX_CONFIG_SPACE <= 0xffff,
+              "MAX_CONFIG_SPACE must be in 1..65535");
+static_assert(EEPROM_SIZE >= 11 + 3 * MAX_CALLBACK_ASSIGNMENTS + MAX_CONFIG_SPACE,
+              "EEPROM_SIZE is too small for callback assignments and config space");
 
 // Callbacks
 #define ALLOW_MULTIPLE_CALLBACKS_PER_ADDRESS  0 // [Default 0] Set to 1 to always test all assigned callbacks. This allows for multiple callbacks being assigned to the same address. If disabled, only the first assigned will be called.

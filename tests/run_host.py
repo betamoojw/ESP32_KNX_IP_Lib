@@ -28,10 +28,21 @@ subprocess.run(compiler + flags + ['knx-codec.cpp', 'knx-protocol.cpp', 'tests/t
 subprocess.run([str(output)], cwd=root, check=True)
 sources = ['knx-codec.cpp', 'knx-protocol.cpp', 'esp-knx-ip.cpp', 'esp-knx-ip-client.cpp',
            'esp-knx-ip-send.cpp', 'esp-knx-ip-conversion.cpp', 'esp-knx-ip-config.cpp', 'tests/test_client.cpp']
+for defines, diagnostic in [
+        (['-DMAX_CALLBACK_ASSIGNMENTS=255'], 'EEPROM_SIZE is too small'),
+        (['-DMAX_CALLBACKS=256'], 'MAX_CALLBACKS must be in 1..255')]:
+    result = subprocess.run(compiler + flags + ['-DESP32', '-Itests/stubs'] + defines +
+                            ['-x', 'c++', '-c', '-', '-o', str(build / 'invalid_capacity.o')], input='#include "esp-knx-ip.h"\n',
+                            cwd=root, text=True, capture_output=True)
+    if result.returncode == 0 or diagnostic not in result.stderr:
+        raise RuntimeError('Missing capacity validation: ' + diagnostic + '\n' + result.stderr)
+print('PASS: invalid capacity configurations rejected', flush=True)
 for target in ['ESP32', 'ESP8266']:
-    output = build / ('test_client_' + target.lower() + ('.exe' if os.name == 'nt' else ''))
-    subprocess.run(compiler + flags + ['-D' + target, '-Itests/stubs'] + sources + ['-o', str(output)], cwd=root, check=True)
-    subprocess.run([str(output)], cwd=root, check=True)
+    for profile, defines in [('default', []), ('capacity255', [
+            '-DMAX_CALLBACK_ASSIGNMENTS=255', '-DMAX_CALLBACKS=255', '-DEEPROM_SIZE=2048'])]:
+        output = build / ('test_client_' + target.lower() + '_' + profile + ('.exe' if os.name == 'nt' else ''))
+        subprocess.run(compiler + flags + ['-D' + target, '-Itests/stubs'] + defines + sources + ['-o', str(output)], cwd=root, check=True)
+        subprocess.run([str(output)], cwd=root, check=True)
 output = build / ('test_example.exe' if os.name == 'nt' else 'test_example')
 example_compiler = [arg for arg in compiler if arg != '-nostdlib++']
 subprocess.run(example_compiler + flags + ['-DESP32', '-Itests/stubs'] + sources[:-1] +

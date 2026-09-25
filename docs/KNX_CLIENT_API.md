@@ -182,3 +182,31 @@ Run `pio run -e esp32 -e esp8266` from the repository root for local-source embe
 compile/link smoke tests. Real-device/ETS validation is still required for multicast
 network behavior, flow-control interoperability, NAT deployment, loss/reconnect and
 peer APDU limits. Passing these tests is not KNX certification.
+
+## Group-object capacity
+
+Defaults support **128 group-address assignments** and **128 callback handlers**.
+One handler can serve many group addresses. Config items and feedbacks remain at
+20 each, with 512 bytes of custom configuration and 1024 bytes of EEPROM.
+
+Capacities can be overridden using PlatformIO `build_flags` (apply them to the
+whole project, including the library). For the maximum supported 255 assignments
+and 255 handlers:
+
+```ini
+build_flags =
+    -DMAX_CALLBACK_ASSIGNMENTS=255
+    -DMAX_CALLBACKS=255
+    -DEEPROM_SIZE=2048
+```
+
+Append these to any existing build flags. Each table capacity must be 1..255;
+valid IDs are 0..254 and 255 denotes registration failure. EEPROM requires
+`11 + 3 * MAX_CALLBACK_ASSIGNMENTS + MAX_CONFIG_SPACE` bytes: 907 bytes with
+defaults, or 1288 bytes with 255 assignments and 512 config bytes. Invalid table
+sizes and insufficient EEPROM capacity fail compilation. Larger tables also
+consume more RAM, especially callback handlers containing names.
+
+Changing assignment/callback/config-space capacities changes the EEPROM magic;
+previous saved KNX settings are ignored and must be configured and saved again.
+Wi-Fi provisioning credentials are separate and are unaffected.
