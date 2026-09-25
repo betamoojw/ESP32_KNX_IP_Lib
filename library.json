@@ -1,0 +1,11 @@
+{
+  "name": "ESP KNX IP Library",
+  "version": "0.5.0",
+  "description": "ESP32/ESP8266 KNXnet/IP application client with DPT codecs, routing, discovery and UDP tunnelling",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32", "espressif8266"],
+  "build": {
+    "srcDir": ".",
+    "srcFilter": ["+<*.cpp>", "-<tests/>", "-<Examples/>", "-<.tools/>", "-<build/>"]
+  }
+}

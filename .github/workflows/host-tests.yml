@@ -1,0 +1,9 @@
+name: KNX protocol tests
+on: [push, pull_request]
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Production C++ protocol and Arduino adapter tests
+        run: python3 tests/run_host.py --compiler g++ --sanitize

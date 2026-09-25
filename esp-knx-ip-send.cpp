@@ -12,71 +12,7 @@
 
 void ESPKNXIP::send(address_t const &receiver, knx_command_type_t ct, uint8_t data_len, uint8_t *data)
 {
-	if (receiver.value == 0)
-	return;
-#if SEND_CHECKSUM
-	uint32_t len = 6 + 2 + 8 + data_len + 1; // knx_pkt + cemi_msg + cemi_service + data + checksum
-#else
-	uint32_t len = 6 + 2 + 8 + data_len; // knx_pkt + cemi_msg + cemi_service + data
-#endif
-	DEBUG_PRINT(F("Creating packet with len "));
-	DEBUG_PRINTLN(len)
-	uint8_t buf[len];
-	knx_ip_pkt_t *knx_pkt = (knx_ip_pkt_t *)buf;
-	knx_pkt->header_len = 0x06;
-	knx_pkt->protocol_version = 0x10;
-	knx_pkt->service_type = __ntohs(KNX_ST_ROUTING_INDICATION);
-	knx_pkt->total_len.len = __ntohs(len);
-	cemi_msg_t *cemi_msg = (cemi_msg_t *)knx_pkt->pkt_data;
-	cemi_msg->message_code = KNX_MT_L_DATA_IND;
-	cemi_msg->additional_info_len = 0;
-	cemi_service_t *cemi_data = &cemi_msg->data.service_information;
-	cemi_data->control_1.bits.confirm = 0;
-	cemi_data->control_1.bits.ack = 0;
-	cemi_data->control_1.bits.priority = B11;
-	cemi_data->control_1.bits.system_broadcast = 0x01;
-	cemi_data->control_1.bits.repeat = 0x01;
-	cemi_data->control_1.bits.reserved = 0;
-	cemi_data->control_1.bits.frame_type = 0x01;
-	cemi_data->control_2.bits.extended_frame_format = 0x00;
-	cemi_data->control_2.bits.hop_count = 0x06;
-	cemi_data->control_2.bits.dest_addr_type = 0x01;
-	cemi_data->source = physaddr;
-	cemi_data->destination = receiver;
-	//cemi_data->destination.bytes.high = (area << 3) | line;
-	//cemi_data->destination.bytes.low = member;
-	cemi_data->data_len = data_len;
-	cemi_data->pci.apci = (ct & 0x0C) >> 2;
-	cemi_data->pci.tpci_seq_number = 0x00; // ???
-	cemi_data->pci.tpci_comm_type = KNX_COT_UDP; // ???
-	memcpy(cemi_data->data, data, data_len);
-	cemi_data->data[0] = (cemi_data->data[0] & 0x3F) | ((ct & 0x03) << 6);
-
-#if SEND_CHECKSUM
-	// Calculate checksum, which is just XOR of all bytes
-	uint8_t cs = buf[0] ^ buf[1];
-	for (uint32_t i = 2; i < len - 1; ++i)
-	{
-		cs ^= buf[i];
-	}
-	buf[len - 1] = cs;
-#endif
-	
-	DEBUG_PRINT(F("Sending packet:"));
-	for (int i = 0; i < len; ++i)
-	{
-		DEBUG_PRINT(F(" 0x"));
-		DEBUG_PRINT(buf[i], 16);
-	}
-	DEBUG_PRINTLN(F(""));
-
-	#ifdef ESP32
-		udp.beginMulticastPacket();
-	#else
-		udp.beginPacketMulticast(MULTICAST_IP, MULTICAST_PORT, WiFi.localIP());
-	#endif
-	udp.write(buf, len);
-	udp.endPacket();
+    send_checked(receiver, ct, data_len, data);
 }
 
 void ESPKNXIP::send_1bit(address_t const &receiver, knx_command_type_t ct, uint8_t bit)
@@ -121,45 +57,28 @@ void ESPKNXIP::send_2byte_uint(address_t const &receiver, knx_command_type_t ct,
 	send(receiver, ct, 3, buf);
 }
 
-void ESPKNXIP::send_2byte_float(address_t const &receiver,
-                               knx_command_type_t ct,
-                               float val)
+void ESPKNXIP::send_2byte_float(address_t const &receiver, knx_command_type_t ct, float val)
 {
-    int sign = (val < 0.0f);
-    if (sign) val = -val;
-
-    int exponent = 0;
-    int mantissa = round(val / 0.01f);
-
-    while (mantissa > 2047)
-    {
-        mantissa >>= 1;
-        exponent++;
-    }
-
-    if (sign)
-        mantissa = (~mantissa + 1) & 0x07FF;
-
-    uint8_t buf[3];
-    buf[0] = 0x00; // APCI wird von send() gesetzt
-    buf[1] = (sign << 7) | ((exponent & 0x0F) << 3) | ((mantissa >> 8) & 0x07);
-    buf[2] = mantissa & 0xFF;
-
-    send(receiver, ct, 3, buf);
+    uint8_t buf[2];
+    last_result_ = knxip::dpt::encodeFloat16(val, buf, sizeof(buf));
+    if (last_result_ == knxip::Result::Ok) send_payload(receiver, ct, buf, sizeof(buf));
 }
-
 
 void ESPKNXIP::send_3byte_time(address_t const &receiver, knx_command_type_t ct, uint8_t weekday, uint8_t hours, uint8_t minutes, uint8_t seconds)
 {
-	weekday <<= 5;
-	uint8_t buf[] = {0x00, (uint8_t)(((weekday << 5) & 0xE0) | (hours & 0x1F)), (uint8_t)(minutes & 0x3F), (uint8_t)(seconds & 0x3F)};
-	send(receiver, ct, 4, buf);
+    uint8_t buf[3];
+    knxip::dpt::Time value = {weekday, hours, minutes, seconds};
+    last_result_ = knxip::dpt::encodeTime(value, buf, sizeof(buf));
+    if (last_result_ == knxip::Result::Ok) send_payload(receiver, ct, buf, sizeof(buf));
 }
 
 void ESPKNXIP::send_3byte_date(address_t const &receiver, knx_command_type_t ct, uint8_t day, uint8_t month, uint8_t year)
 {
-	uint8_t buf[] = {0x00, (uint8_t)(day & 0x1F), (uint8_t)(month & 0x0F), year};
-	send(receiver, ct, 4, buf);
+    uint8_t buf[3];
+    if (year > 99) { last_result_ = knxip::Result::OutOfRange; return; }
+    knxip::dpt::Date value = {uint16_t((year >= 90 ? 1900 : 2000) + year), month, day};
+    last_result_ = knxip::dpt::encodeDate(value, buf, sizeof(buf));
+    if (last_result_ == knxip::Result::Ok) send_payload(receiver, ct, buf, sizeof(buf));
 }
 
 void ESPKNXIP::send_3byte_color(address_t const &receiver, knx_command_type_t ct, uint8_t red, uint8_t green, uint8_t blue)
@@ -190,6 +109,14 @@ void ESPKNXIP::send_4byte_uint(address_t const &receiver, knx_command_type_t ct,
 
 void ESPKNXIP::send_4byte_float(address_t const &receiver, knx_command_type_t ct, float val)
 {
-	uint8_t buf[] = {0x00, ((uint8_t *)&val)[3], ((uint8_t *)&val)[2], ((uint8_t *)&val)[1], ((uint8_t *)&val)[0]};
-	send(receiver, ct, 5, buf);
+    uint8_t buf[4];
+    last_result_ = knxip::dpt::encodeFloat32(val, buf, sizeof(buf));
+    if (last_result_ == knxip::Result::Ok) send_payload(receiver, ct, buf, sizeof(buf));
+}
+
+void ESPKNXIP::send_14byte_string(address_t const &receiver, knx_command_type_t ct, const char *val)
+{
+    uint8_t buf[14];
+    last_result_ = knxip::dpt::encodeString14(val, buf, sizeof(buf), false);
+    if (last_result_ == knxip::Result::Ok) send_payload(receiver, ct, buf, sizeof(buf));
 }

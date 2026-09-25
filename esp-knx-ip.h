@@ -38,6 +38,7 @@
 #ifndef MULTICAST_IP
 #define MULTICAST_IP              IPAddress(224, 0, 23, 12) // [Default IPAddress(224, 0, 23, 12)]
 #endif
+// cEMI over KNXnet/IP never carries a TP checksum. Kept for source compatibility.
 #define SEND_CHECKSUM             0
 
 // Uncomment to enable printing out debug messages.
@@ -61,6 +62,7 @@
 
 
 #include "DPT.h"
+#include "knx-protocol.h"
 
 #define EEPROM_MAGIC (0xDEADBEEF00000000 + (MAX_CONFIG_SPACE) + (MAX_CALLBACK_ASSIGNMENTS << 16) + (MAX_CALLBACKS << 8))
 
@@ -184,7 +186,7 @@ typedef struct __knx_ip_pkt
       uint8_t second_byte;
     } bytes;
     uint16_t len;
-  } total_len; // header_len + rest of pkt. This is a bit weird as the spec says this:  If the total number of bytes transmitted is greater than 252 bytes, the first “Total Length” byte is set to FF (255). Only in this case the second byte includes additional length information
+  } total_len; // 16-bit network-byte-order length, including the six-byte header.
   uint8_t pkt_data[]; // This is of type cemi_msg_t
 } knx_ip_pkt_t;
 
@@ -300,6 +302,7 @@ typedef struct __message
   address_t received_on;
   uint8_t data_len;
   uint8_t *data;
+  address_t source; // Sender's individual address; data is valid only during callback.
 } message_t;
 
 typedef bool (*enable_condition_t)(void);
@@ -371,6 +374,26 @@ class ESPKNXIP {
     void load();
     void start();
     void loop();
+    // Checked application-client APIs. Call loop() regularly for tunnel timers.
+    knxip::Result start_routing();
+    knxip::Result start_tunnel(IPAddress server, uint16_t port = 3671, uint16_t local_port = 3672, bool nat = false);
+    knxip::Result disconnect_tunnel();
+    knxip::Tunnel::State tunnel_state() const { return tunnel.state(); }
+    uint16_t tunnel_address() const { return tunnel.address(); }
+    uint8_t tunnel_status() const { return tunnel.lastStatus(); }
+    bool tunnel_pending() const { return tunnel.pending(); }
+    knxip::Result last_result() const { return last_result_; }
+    knxip::Result send_checked(address_t const &receiver, knx_command_type_t ct, size_t data_len, const uint8_t *data);
+    // payload excludes APCI. compact=true only for DPTs occupying <=6 bits.
+    knxip::Result send_payload(address_t const &receiver, knx_command_type_t ct, const uint8_t *payload, size_t size, bool compact = false);
+    // Validates a supported main-type layout; does not infer/validate a subtype.
+    knxip::Result send_dpt(address_t const &receiver, knx_command_type_t ct, uint16_t main_type, const uint8_t *payload, size_t size);
+    static knxip::Result message_payload(const message_t &message, uint16_t main_type, const uint8_t *&payload, size_t &size);
+    typedef void (*discovery_callback_t)(const knxip::DiscoveryView &, void *);
+    knxip::Result discover(discovery_callback_t callback, void *arg = nullptr, uint16_t local_port = 3673);
+    knxip::Result describe(IPAddress server, discovery_callback_t callback, void *arg = nullptr, uint16_t port = 3671, uint16_t local_port = 3673);
+    struct Diagnostics { uint32_t malformed, routing_lost, routing_busy; };
+    Diagnostics diagnostics() const { return diagnostics_; }
     void save_to_eeprom();
     void restore_from_eeprom();
 
@@ -476,27 +499,36 @@ class ESPKNXIP {
     color_t       data_to_3byte_color(uint8_t *data);
     time_of_day_t data_to_3byte_time(uint8_t *data);
     date_t        data_to_3byte_data(uint8_t *data);
+    date_t        data_to_3byte_date(uint8_t *data) { return data_to_3byte_data(data); }
     int32_t       data_to_4byte_int(uint8_t *data);
     uint32_t      data_to_4byte_uint(uint8_t *data);
     float         data_to_4byte_float(uint8_t *data);
 
     static address_t GA_to_address(uint8_t area, uint8_t line, uint8_t member)
     {
-      // Yes, the order is correct, see the struct definition above
-      address_t tmp = {.ga={line, area, member}};
+      address_t tmp = {};
+      tmp.bytes.high = uint8_t(((area & 31) << 3) | (line & 7));
+      tmp.bytes.low = member;
       return tmp;
     }
 
     static address_t PA_to_address(uint8_t area, uint8_t line, uint8_t member)
     {
-      // Yes, the order is correct, see the struct definition above
-      address_t tmp = {.pa={line, area, member}};
+      address_t tmp = {};
+      tmp.bytes.high = uint8_t(((area & 15) << 4) | (line & 15));
+      tmp.bytes.low = member;
       return tmp;
     }
 
   private:
     void __start();
     void __loop_knx();
+    void __dispatch(const knxip::CemiView &frame);
+    void __loop_discovery();
+    void __routing_decay(uint32_t now);
+    static bool __transmit(const knxip::Endpoint &, const uint8_t *, size_t, void *);
+    static void __clear_udp(WiFiUDP &socket);
+    knxip::Result __discovery_request(uint16_t service, IPAddress server, uint16_t port, uint16_t local_port, discovery_callback_t callback, void *arg);
 
     // Webserver functions
     void __loop_webserver();
@@ -529,6 +561,22 @@ class ESPKNXIP {
 
     address_t physaddr;
     WiFiUDP udp;
+    WiFiUDP discovery_udp;
+    knxip::Tunnel tunnel;
+    bool routing_ = false;
+    uint16_t local_port_ = 0;
+    knxip::Result last_result_ = knxip::Result::NotConnected;
+    Diagnostics diagnostics_ = {};
+    uint32_t routing_wait_start_ = 0, routing_wait_ms_ = 0, routing_last_send_ = 0;
+    bool routing_sent_ = false;
+    uint32_t routing_busy_at_ = 0, routing_decay_at_ = 0;
+    uint16_t routing_busy_factor_ = 0;
+    discovery_callback_t discovery_callback_ = nullptr;
+    void *discovery_arg_ = nullptr;
+    uint32_t discovery_since_ = 0;
+    uint16_t discovery_service_ = 0;
+    uint16_t discovery_port_ = 0;
+    knxip::Endpoint discovery_peer_ = {};
 
     callback_assignment_id_t registered_callback_assignments;
     callback_assignment_t callback_assignments[MAX_CALLBACK_ASSIGNMENTS];

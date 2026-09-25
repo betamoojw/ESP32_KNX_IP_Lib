@@ -4,6 +4,11 @@
  * License: MIT
  */
 
+#ifndef ESP_KNX_DPT_H
+#define ESP_KNX_DPT_H
+#include <stdint.h>
+#include "knx-codec.h"
+
 typedef enum __dpt_1_001
 {
 	DPT_1_001_OFF = 0x00,
@@ -71,3 +76,5 @@ typedef struct __color
 	uint8_t green;
 	uint8_t blue;
 } color_t;
+
+#endif

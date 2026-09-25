@@ -1,0 +1,7 @@
+.pio/
+.tools/
+.zig-cache/
+zig-out/
+build/
+__pycache__/
+.vscode/

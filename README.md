@@ -3,8 +3,10 @@
 This is a ported fork of the original ESP8266 by @envy, all kudos to him
 https://github.com/envy/esp-knx-ip
 
-This is a library for the ESP32 to enable KNXnet/IP communication. It uses UDP multicast on 224.0.23.12:3671.
-It is intended to be used with the Arduino platform for the ESP32.
+This is a library for the ESP32 to enable KNXnet/IP communication. It supports UDP multicast routing on 224.0.23.12:3671, discovery/description and UDP tunnelling.
+It supports the Arduino platforms for ESP32 and ESP8266.
+
+See the [implementation plan and review](docs/KNX_IMPLEMENTATION_PLAN.md) and [client API, DPT coverage and validation guide](docs/KNX_CLIENT_API.md). The current implementation is an application client; supported typed codecs and remaining subtype/compound limitations are listed explicitly in that guide.
 
 ## Prerequisities
 
@@ -93,10 +95,22 @@ Open the `esp-knx-ip.h` and take a look at the config options at the top inside 
 
 ## How to configure (runtime)
 
-Simply visit the IP of your ESP with a webbrowser. You can configure the following:
+Configure the physical address with `physical_address_set()`, register callbacks with
+`callback_register()`, and associate each callback with a group address using
+`callback_assign()`. Configuration values can be persisted with `save_to_eeprom()`
+and restored by `load()`. This fork has no web configuration server.
 
-- KNX physical address
-- Which group address should trigger which callback
-- Which group address are to be used by the program (e.g. for status replies)
+For checked sends, use `send_dpt()` or `send_payload()` and handle `Busy` by retrying
+later. Existing void helpers report results through `last_result()`. Routing sends
+are paced at 20 ms; tunnelling permits one outstanding telegram. See the API guide
+for connection lifecycle and safe decoding examples.
 
-The configuration is dynamically generated from the code.
+## Build and test
+
+```text
+python tests/run_host.py --compiler g++
+pio run -e esp32 -e esp8266
+```
+
+The root PlatformIO project builds this checkout. The existing example also uses
+a local library symlink instead of downloading a different remote revision.
