@@ -11,6 +11,19 @@ static IPAddress local_address() {
     return WiFi.localIP();
 #endif
 }
+void ESPKNXIP::stop() {
+    udp.stop();
+    discovery_udp.stop();
+    tunnel.reset();
+    routing_ = false;
+    local_port_ = discovery_port_ = 0;
+    discovery_callback_ = nullptr;
+    discovery_arg_ = nullptr;
+    routing_sent_ = false;
+    routing_busy_factor_ = 0;
+    routing_wait_ms_ = 0;
+    last_result_ = knxip::Result::NotConnected;
+}
 void ESPKNXIP::__clear_udp(KnxUDP &socket) {
 #ifdef ESP32
     socket.clear();

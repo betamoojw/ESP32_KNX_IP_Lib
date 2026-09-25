@@ -33,11 +33,6 @@ void ESPKNXIP::load()
 
 void ESPKNXIP::start()
 {
-    __start();
-}
-
-void ESPKNXIP::__start()
-{
     start_routing();
 }
 
@@ -164,6 +159,9 @@ void ESPKNXIP::callback_assign(callback_id_t id, address_t val)
 
 callback_assignment_id_t ESPKNXIP::__callback_register_assignment(address_t address, callback_id_t id)
 {
+    for (uint8_t i = 0; i < registered_callback_assignments; ++i)
+        if (callback_assignments[i].callback_id == id && callback_assignments[i].address.value == address.value)
+            return i;
     if (registered_callback_assignments >= MAX_CALLBACK_ASSIGNMENTS)
         return -1;
 
@@ -178,31 +176,19 @@ void ESPKNXIP::__callback_delete_assignment(callback_assignment_id_t id)
 {
     if (id >= registered_callback_assignments)
         return;
-
-    uint32_t dest_offset = 0;
-    uint32_t src_offset = 0;
-    uint32_t len = 0;
-
-    if (id == 0)
-    {
-        src_offset = 1;
-        len = (registered_callback_assignments - 1);
-    }
-    else if (id == registered_callback_assignments - 1)
-    {
-        // last element, just decrement
-    }
-    else
-    {
-        dest_offset = id;
-        src_offset = dest_offset + 1;
-        len = (registered_callback_assignments - 1 - id);
-    }
-
-    if (len > 0)
-        memmove(callback_assignments + dest_offset, callback_assignments + src_offset, len * sizeof(callback_assignment_t));
-
+    const size_t count = registered_callback_assignments - id - 1;
+    memmove(callback_assignments + id, callback_assignments + id + 1, count * sizeof(callback_assignment_t));
     registered_callback_assignments--;
+}
+
+void ESPKNXIP::callback_unassign(callback_id_t id, address_t address)
+{
+    for (uint8_t i = 0; i < registered_callback_assignments; ) {
+        if (callback_assignments[i].callback_id == id && callback_assignments[i].address.value == address.value)
+            __callback_delete_assignment(i);
+        else
+            ++i;
+    }
 }
 
 /**

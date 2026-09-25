@@ -7,6 +7,14 @@
 #define HEX 16
 #define BIN 2
 #define F(x) x
+#define INPUT_PULLUP 2
+#define OUTPUT 1
+#define LOW 0
+#define HIGH 1
+inline void pinMode(int, int) {}
+inline int digitalRead(int) { return HIGH; }
+inline void digitalWrite(int, int) {}
+inline void delay(unsigned) {}
 class String {
     char text[256];
 public:
@@ -15,6 +23,7 @@ public:
     const char *c_str() const { return text; }
 };
 struct SerialStub {
+    void begin(unsigned) {}
     template<class... T> void print(T...) {}
     template<class... T> void println(T...) {}
 };

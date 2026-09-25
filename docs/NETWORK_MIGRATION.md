@@ -54,3 +54,31 @@ validation on the intended KNX LAN.
 - [NetworkManager in core 3.0.0](https://github.com/espressif/arduino-esp32/blob/3.0.0/libraries/Network/src/NetworkManager.h)
 - [NetworkUDP in core 3.3.0](https://github.com/espressif/arduino-esp32/blob/3.3.0/libraries/Network/src/NetworkUdp.h)
 - [Pinned PlatformIO integration](https://github.com/pioarduino/platform-espressif32/releases/tag/55.03.38)
+
+## Development branch lifecycle review
+
+The portable codecs and tunnel state machine already have separate responsibilities;
+this refinement keeps their boundary intact. The main issues were blocking Wi-Fi
+startup, missing session teardown/recovery, unchecked example payload decoding,
+and a dynamic address table that left old callback subscriptions installed.
+
+`ESPKNXIP::stop()` now closes routing/tunnel/discovery sockets and resets transient
+protocol state without clearing callbacks, configuration, physical address or
+cumulative diagnostics. `disconnect_tunnel()` remains the graceful teardown API.
+Callback assignment is idempotent and `callback_unassign()` removes matching
+subscriptions. The unnecessary start wrapper and special-case array deletion logic
+were simplified. Existing public methods remain available.
+
+The [example](../Examples/knx%20ip%20test/README.md) separates network policy from
+KNX application behavior using composition and injected client references. It adds
+nonblocking Wi-Fi preference/Ethernet fallback, reconnection, and SoftAP provisioning.
+It deliberately keeps this application policy outside the portable protocol library.
+
+Validation for this refinement: 348,981 protocol checks plus 20,000 malformed-input
+iterations, 74 ESP32 adapter checks, 63 ESP8266 adapter checks, and 14 checks compiling
+and exercising the actual example with host driver stubs all passed using Zig.
+The ESP32 embedded library and final provisioning/Ethernet example both compiled
+and linked successfully with Arduino-ESP32 3.3.8. The example uses about 1.80 MB
+of a 1.875 MiB app slot. The ESP8266 embedded build was blocked while downloading
+`platformio/tool-esptoolpy ~1.30000.0` (HTTPClientError); host compatibility passed.
+No physical device, provisioning phone app or KNX LAN was available for validation.

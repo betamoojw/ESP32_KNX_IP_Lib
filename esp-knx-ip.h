@@ -378,6 +378,8 @@ class ESPKNXIP {
     ESPKNXIP();
     void load();
     void start();
+    // Immediate local cleanup after network loss; use disconnect_tunnel() for graceful teardown.
+    void stop();
     void loop();
     // Checked application-client APIs. Call loop() regularly for tunnel timers.
     knxip::Result start_routing();
@@ -404,6 +406,7 @@ class ESPKNXIP {
 
     callback_id_t callback_register(String name, callback_fptr_t cb, void *arg = nullptr, enable_condition_t cond = nullptr);
     void          callback_assign(callback_id_t id, address_t val);
+    void          callback_unassign(callback_id_t id, address_t val);
 
     void          physical_address_set(address_t const &addr);
     address_t     physical_address_get();
@@ -526,7 +529,6 @@ class ESPKNXIP {
     }
 
   private:
-    void __start();
     void __loop_knx();
     void __dispatch(const knxip::CemiView &frame);
     void __loop_discovery();

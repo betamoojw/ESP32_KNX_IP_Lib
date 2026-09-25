@@ -143,3 +143,8 @@ pio run -e esp32 -e esp8266
 
 The root PlatformIO project builds this checkout. The existing example also uses
 a local library symlink instead of downloading a different remote revision.
+
+## Provisioned Wi-Fi / Ethernet example
+
+See [the example guide](Examples/knx%20ip%20test/README.md) for Wi-Fi provisioning,
+automatic Ethernet fallback, KNX routing recovery, and required PHY/pin settings.

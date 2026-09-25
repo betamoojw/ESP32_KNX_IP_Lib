@@ -13,8 +13,11 @@ it is used on tunnel telegrams without changing the configured routing address.
 disconnected before changing transports. A rejected connection, failed heartbeat,
 or exhausted ACK retry ends the connection. The application can call
 `start_tunnel()` again with its own reconnect/backoff policy after it is disconnected.
-After a network reconnect or default-interface/IP change, call the appropriate start function again once the old
-tunnel is disconnected. No automatic interface selection or reconnect is implied.
+After network loss, call `stop()` to close both sockets, cancel discovery and reset
+the tunnel immediately. It preserves callbacks, configuration and diagnostics.
+Select the restored interface and call the appropriate start function again.
+The library leaves interface selection and reconnect policy to the application;
+the supplied example implements automatic Wi-Fi/Ethernet routing recovery.
 
 On ESP32 (Arduino core >= 3.0.0), both sockets use `NetworkUDP`. The application
 initializes `Network`/its chosen driver and selects the default interface before
@@ -33,10 +36,10 @@ No transport selection build flag is needed.
 bind sockets to a specific interface or override the core's routing table. Keep
 the KNX destination reachable through the selected default interface; simultaneous
 interfaces with overlapping routes are not supported as an interface-pinning mode.
-Do not change the default interface during an active tunnel. Disconnect first,
-allow pending discovery to finish (10-second timeout), switch interfaces and start
-again. Rejoin multicast by calling `start_routing()` after reconnecting. Automatic
-failover and IPv6 KNXnet/IP are not implemented. ESP8266 continues using its Wi-Fi
+Do not change the default interface during an active tunnel. Disconnect gracefully
+when possible, then call `stop()`, switch interfaces and start again. After network
+loss, `stop()` needs no peer response. Rejoin multicast by calling `start_routing()`
+after reconnecting. IPv6 KNXnet/IP is not implemented. ESP8266 continues using its Wi-Fi
 address and UDP API. ESP32 core 2.x is rejected with a compile-time diagnostic.
 
 | Service | Behavior |
@@ -117,6 +120,10 @@ KNX group telegrams carry no DPT identifier. Configure the DPT for each GA in yo
 application. Do not guess it from payload length.
 
 ## Receiving and compatibility
+
+`callback_assign(id, address)` is idempotent for the same callback/address pair.
+Use `callback_unassign(id, address)` before replacing or removing a subscription.
+Other callbacks and addresses are preserved.
 
 Existing callbacks retain `message_t.data[0]` as the compact value (or zero for byte
 payloads); extended payload starts at `data[1]`. `data_len` includes that first byte.

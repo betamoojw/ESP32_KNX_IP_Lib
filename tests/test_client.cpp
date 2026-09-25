@@ -118,5 +118,25 @@ int main() {
     receive(incoming,21,3672); CHECK(callbacks == 2 && knxip::read16(NetworkUDP::outgoing+2) == 0x0421);
     CHECK(knx.disconnect_tunnel() == Result::Ok); test_now+=5000;knx.loop();
     CHECK(knx.tunnel_state() == knxip::Tunnel::State::Disconnected);
+    // Local teardown cancels an in-flight connect and discovery without a live network.
+    CHECK(knx.start_tunnel(IPAddress(192,168,1,20)) == Result::Ok);
+    CHECK(knx.discover(discovery) == Result::Ok);
+    knx.stop(); knx.stop();
+    CHECK(knx.tunnel_state() == knxip::Tunnel::State::Disconnected);
+    CHECK(!knx.tunnel_pending());
+    CHECK(knx.send_checked(ga,KNX_CT_READ,0,nullptr) == Result::NotConnected);
+    CHECK(knx.discover(discovery) == Result::Ok);
+    knx.stop();
+    NetworkUDP::fail = true;
+    CHECK(knx.start_routing() == Result::IoError);
+    NetworkUDP::fail = false;
+    CHECK(knx.start_routing() == Result::Ok);
+    // Duplicate assignment is idempotent; removal and restart preserve other configuration.
+    for (unsigned i=0; i<MAX_CALLBACK_ASSIGNMENTS+1; ++i) knx.callback_assign(id,ga);
+    knx.callback_unassign(id,ga);
+    receive(golden,sizeof(golden)); CHECK(callbacks == 2);
+    knx.callback_assign(id,ga);
+    knx.stop(); CHECK(knx.start_routing() == Result::Ok);
+    receive(golden,sizeof(golden)); CHECK(callbacks == 3);
     printf("PASS: %u Arduino client checks\n",checks);
 }

@@ -32,3 +32,8 @@ for target in ['ESP32', 'ESP8266']:
     output = build / ('test_client_' + target.lower() + ('.exe' if os.name == 'nt' else ''))
     subprocess.run(compiler + flags + ['-D' + target, '-Itests/stubs'] + sources + ['-o', str(output)], cwd=root, check=True)
     subprocess.run([str(output)], cwd=root, check=True)
+output = build / ('test_example.exe' if os.name == 'nt' else 'test_example')
+example_compiler = [arg for arg in compiler if arg != '-nostdlib++']
+subprocess.run(example_compiler + flags + ['-DESP32', '-Itests/stubs'] + sources[:-1] +
+               ['tests/test_example.cpp', '-o', str(output)], cwd=root, check=True)
+subprocess.run([str(output)], cwd=root, check=True)
