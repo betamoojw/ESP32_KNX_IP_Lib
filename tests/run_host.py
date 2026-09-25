@@ -26,8 +26,9 @@ if args.sanitize:
 output = build / ('test_protocol.exe' if os.name == 'nt' else 'test_protocol')
 subprocess.run(compiler + flags + ['knx-codec.cpp', 'knx-protocol.cpp', 'tests/test_protocol.cpp', '-o', str(output)], cwd=root, check=True)
 subprocess.run([str(output)], cwd=root, check=True)
-output = build / ('test_client.exe' if os.name == 'nt' else 'test_client')
 sources = ['knx-codec.cpp', 'knx-protocol.cpp', 'esp-knx-ip.cpp', 'esp-knx-ip-client.cpp',
            'esp-knx-ip-send.cpp', 'esp-knx-ip-conversion.cpp', 'esp-knx-ip-config.cpp', 'tests/test_client.cpp']
-subprocess.run(compiler + flags + ['-DESP32', '-Itests/stubs'] + sources + ['-o', str(output)], cwd=root, check=True)
-subprocess.run([str(output)], cwd=root, check=True)
+for target in ['ESP32', 'ESP8266']:
+    output = build / ('test_client_' + target.lower() + ('.exe' if os.name == 'nt' else ''))
+    subprocess.run(compiler + flags + ['-D' + target, '-Itests/stubs'] + sources + ['-o', str(output)], cwd=root, check=True)
+    subprocess.run([str(output)], cwd=root, check=True)

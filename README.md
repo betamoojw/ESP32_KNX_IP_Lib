@@ -10,7 +10,30 @@ See the [implementation plan and review](docs/KNX_IMPLEMENTATION_PLAN.md) and [c
 
 ## Prerequisities
 
-I'm using this repo with this board library: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+ESP32 requires the official Arduino-ESP32 core **3.0.0 or newer**. The library uses
+`NetworkUDP` and `Network.getDefaultInterface()`; it does not include or initialize
+Wi-Fi or Ethernet drivers. ESP8266 retains its `WiFiUDP` transport.
+
+The PlatformIO projects pin pioarduino `55.03.38`, which packages Arduino-ESP32
+3.3.8. pioarduino is the PlatformIO integration, separate from Espressif's core.
+Use the same platform URL in your application's environment:
+
+```ini
+[env:esp32]
+platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.38/platform-espressif32.zip
+board = esp32dev
+framework = arduino
+```
+
+Initialize your chosen driver in the application (`WiFi.h`, `ETH.h`, etc.), wait
+for an IPv4 address, then start KNX. For multiple active interfaces, select the
+one connected to your KNX LAN using `Network.setDefaultInterface(WiFi.STA)` or
+`Network.setDefaultInterface(ETH)` before starting. The library advertises that
+interface's IPv4 address in discovery and tunnel HPAIs. Routing requires IPv4
+multicast support on the chosen network. See [transport details](docs/KNX_CLIENT_API.md).
+
+References: [Espressif Network API](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/network.html)
+and [pioarduino 55.03.38](https://github.com/pioarduino/platform-espressif32/releases/tag/55.03.38).
 
 ## How to use
 
@@ -22,6 +45,9 @@ A simple example:
 
 ```c++
 #include <esp-knx-ip.h>
+#ifdef ESP32
+#include <WiFi.h> // The application owns driver initialization.
+#endif
 
 const char* ssid = "my-ssid";  //  your network SSID (name)
 const char* pass = "my-pw";    // your network password
@@ -50,7 +76,10 @@ void setup()
 		delay(500);
 	}
 
-	knx.start(); // Start everything. Must be called after WiFi connection has been established
+	#ifdef ESP32
+    Network.setDefaultInterface(WiFi.STA);
+#endif
+    knx.start(); // Start after the chosen network interface has an IPv4 address.
 }
 
 void loop()

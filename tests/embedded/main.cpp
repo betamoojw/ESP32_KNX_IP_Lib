@@ -5,7 +5,12 @@ void setup() {
     knxip::dpt::encodeFloat16(-12.34f, bytes, sizeof(bytes));
     knxip::dpt::DateTime dt = {{2026,9,25},{5,12,0,0},0,0};
     knxip::dpt::encodeDateTime(dt, bytes, sizeof(bytes));
+#ifdef ESP32
+    NetworkInterface *interface = Network.getDefaultInterface();
+    if (interface && interface->hasIP()) {
+#else
     if (WiFi.status() == WL_CONNECTED) {
+#endif
         knx.start();
         knx.send_14byte_string(ESPKNXIP::GA_to_address(1,1,1), KNX_CT_WRITE, "KNX");
     }

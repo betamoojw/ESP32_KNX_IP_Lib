@@ -50,15 +50,20 @@
 #include "Arduino.h"
 
 #ifdef ESP32
-    #include <WiFi.h>
-    
+    #include <esp_arduino_version.h>
+    #if ESP_ARDUINO_VERSION_MAJOR < 3
+        #error "ESP KNX IP requires Arduino-ESP32 3.0.0 or newer (Network API)."
+    #endif
+    #include <Network.h>
+    #include <NetworkUdp.h>
+    using KnxUDP = NetworkUDP;
 #else
     #include <ESP8266WiFi.h>
-    
+    #include <WiFiUdp.h>
+    using KnxUDP = WiFiUDP;
 #endif
 
 #include <EEPROM.h>
-#include <WiFiUdp.h>
 
 
 #include "DPT.h"
@@ -527,7 +532,7 @@ class ESPKNXIP {
     void __loop_discovery();
     void __routing_decay(uint32_t now);
     static bool __transmit(const knxip::Endpoint &, const uint8_t *, size_t, void *);
-    static void __clear_udp(WiFiUDP &socket);
+    static void __clear_udp(KnxUDP &socket);
     knxip::Result __discovery_request(uint16_t service, IPAddress server, uint16_t port, uint16_t local_port, discovery_callback_t callback, void *arg);
 
     // Webserver functions
@@ -560,8 +565,8 @@ class ESPKNXIP {
     void __callback_delete_assignment(callback_assignment_id_t id);
 
     address_t physaddr;
-    WiFiUDP udp;
-    WiFiUDP discovery_udp;
+    KnxUDP udp;
+    KnxUDP discovery_udp;
     knxip::Tunnel tunnel;
     bool routing_ = false;
     uint16_t local_port_ = 0;

@@ -2,7 +2,7 @@
 
 ## Transport
 
-Call `loop()` frequently (without long blocking work). Start after Wi-Fi has an IP.
+Call `loop()` frequently (without long blocking work). Start after the selected network interface has an IPv4 address.
 `start()` retains the multicast-routing default; `start_routing()` returns a result.
 Use `start_tunnel(IPAddress(192,168,1,20))` instead to connect to an interface.
 This is asynchronous: wait for `tunnel_state() == knxip::Tunnel::State::Connected`.
@@ -13,8 +13,31 @@ it is used on tunnel telegrams without changing the configured routing address.
 disconnected before changing transports. A rejected connection, failed heartbeat,
 or exhausted ACK retry ends the connection. The application can call
 `start_tunnel()` again with its own reconnect/backoff policy after it is disconnected.
-After a Wi-Fi reconnect, call the appropriate start function again once the old
+After a network reconnect or default-interface/IP change, call the appropriate start function again once the old
 tunnel is disconnected. No automatic interface selection or reconnect is implied.
+
+On ESP32 (Arduino core >= 3.0.0), both sockets use `NetworkUDP`. The application
+initializes `Network`/its chosen driver and selects the default interface before
+calling KNX. `Network.getDefaultInterface()->localIP()` supplies the discovery,
+description and tunnel HPAIs; no Wi-Fi or Ethernet driver is required by the library.
+Missing default interface, missing IPv4 readiness or a zero IPv4 address returns
+`NotConnected` from start/discovery operations without sending a packet.
+
+For Ethernet, include `<ETH.h>`, call `ETH.begin(...)` with your board's PHY/pin
+configuration, wait for `ETH.hasIP()`, select `Network.setDefaultInterface(ETH)`,
+and call `knx.start_routing()` or `knx.start_tunnel(...)`. Wi-Fi applications follow
+the same sequence with `WiFi.begin(...)` and `Network.setDefaultInterface(WiFi.STA)`.
+No transport selection build flag is needed.
+
+`NetworkUDP` owns multicast membership and socket routing; the library does not
+bind sockets to a specific interface or override the core's routing table. Keep
+the KNX destination reachable through the selected default interface; simultaneous
+interfaces with overlapping routes are not supported as an interface-pinning mode.
+Do not change the default interface during an active tunnel. Disconnect first,
+allow pending discovery to finish (10-second timeout), switch interfaces and start
+again. Rejoin multicast by calling `start_routing()` after reconnecting. Automatic
+failover and IPv6 KNXnet/IP are not implemented. ESP8266 continues using its Wi-Fi
+address and UDP API. ESP32 core 2.x is rejected with a compile-time diagnostic.
 
 | Service | Behavior |
 |---|---|

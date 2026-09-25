@@ -3,8 +3,16 @@
 static knxip::Endpoint endpoint(IPAddress ip, uint16_t port) {
     return knxip::Endpoint{{ip[0], ip[1], ip[2], ip[3]}, port};
 }
-void ESPKNXIP::__clear_udp(WiFiUDP &socket) {
-#if defined(ESP32) && defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+static IPAddress local_address() {
+#ifdef ESP32
+    NetworkInterface *interface = Network.getDefaultInterface();
+    return interface && interface->hasIP() ? interface->localIP() : IPAddress();
+#else
+    return WiFi.localIP();
+#endif
+}
+void ESPKNXIP::__clear_udp(KnxUDP &socket) {
+#ifdef ESP32
     socket.clear();
 #else
     socket.flush();
@@ -19,6 +27,7 @@ bool ESPKNXIP::__transmit(const knxip::Endpoint &ep, const uint8_t *data, size_t
 }
 knxip::Result ESPKNXIP::start_routing() {
     if (tunnel.state() != knxip::Tunnel::State::Disconnected) return last_result_ = knxip::Result::Busy;
+    if (uint32_t(local_address()) == 0) return last_result_ = knxip::Result::NotConnected;
     udp.stop(); routing_ = false;
 #ifdef ESP32
     int ok = udp.beginMulticast(MULTICAST_IP, MULTICAST_PORT);
@@ -34,10 +43,12 @@ knxip::Result ESPKNXIP::start_tunnel(IPAddress server, uint16_t port, uint16_t l
     if (!port || !local_port || local_port == MULTICAST_PORT || uint32_t(server) == 0 || server[0] >= 224)
         return last_result_ = knxip::Result::InvalidArgument;
     if (discovery_callback_ && local_port == discovery_port_) return last_result_ = knxip::Result::Busy;
+    IPAddress local = local_address();
+    if (uint32_t(local) == 0) return last_result_ = knxip::Result::NotConnected;
     udp.stop(); routing_ = false;
     if (!udp.begin(local_port)) return last_result_ = knxip::Result::IoError;
     local_port_ = local_port;
-    return last_result_ = tunnel.connect(endpoint(WiFi.localIP(), local_port), endpoint(server, port), millis(), __transmit, this, nat);
+    return last_result_ = tunnel.connect(endpoint(local, local_port), endpoint(server, port), millis(), __transmit, this, nat);
 }
 knxip::Result ESPKNXIP::disconnect_tunnel() { return last_result_ = tunnel.disconnect(millis()); }
 void ESPKNXIP::__routing_decay(uint32_t now) {
@@ -107,9 +118,11 @@ knxip::Result ESPKNXIP::__discovery_request(uint16_t service, IPAddress server, 
                                           discovery_callback_t callback, void *arg) {
     if (!callback || !local_port || !port || local_port == MULTICAST_PORT || local_port == local_port_) return last_result_ = knxip::Result::InvalidArgument;
     if (discovery_callback_) return last_result_ = knxip::Result::Busy;
+    IPAddress local = local_address();
+    if (uint32_t(local) == 0) return last_result_ = knxip::Result::NotConnected;
     if (!discovery_udp.begin(local_port)) return last_result_ = knxip::Result::IoError;
     uint8_t packet[14]; knxip::packetHeader(packet, service, sizeof(packet));
-    knxip::encodeHpai(packet + 6, endpoint(WiFi.localIP(), local_port));
+    knxip::encodeHpai(packet + 6, endpoint(local, local_port));
     if (!discovery_udp.beginPacket(server, port)) { discovery_udp.stop(); return last_result_ = knxip::Result::IoError; }
     size_t count = discovery_udp.write(packet, sizeof(packet)); int sent = discovery_udp.endPacket();
     if (count != sizeof(packet) || sent != 1) { discovery_udp.stop(); return last_result_ = knxip::Result::IoError; }

@@ -186,7 +186,7 @@ void setup()
     knx.physical_address_set(knx.PA_to_address(1,0,101));
 
     // WLAN Verbindung
-    WiFi.hostname("ESP_KNX_TEST");
+    Network.setHostname("ESP_KNX_TEST");
     WiFi.begin(ssid, pass);
 
     Serial.println("Verbinde WLAN...");
@@ -198,6 +198,7 @@ void setup()
     Serial.println("\nWiFi verbunden!");
     Serial.println(WiFi.localIP());
 
+    Network.setDefaultInterface(WiFi.STA);
     knx.start();
 
     // Dynamische GAs registrieren
