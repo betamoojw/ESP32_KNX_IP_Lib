@@ -37,86 +37,123 @@ and [pioarduino 55.03.38](https://github.com/pioarduino/platform-espressif32/rel
 
 ## How to use
 
-The library is under development. API may change multiple times in the future.
+Use the [current client API guide](docs/KNX_CLIENT_API.md) for this fork. The
+original upstream wiki does not describe its checked APIs or network lifecycle.
 
-API documentation is available [here](https://github.com/envy/esp-knx-ip/wiki/API)
+### Run the ESP32 example
 
-A simple example:
+Clone the development branch and build the included PlatformIO project:
 
-```c++
-#include <esp-knx-ip.h>
-#ifdef ESP32
-#include <WiFi.h> // The application owns driver initialization.
-#endif
-
-const char* ssid = "my-ssid";  //  your network SSID (name)
-const char* pass = "my-pw";    // your network password
-
-config_id_t my_GA;
-config_id_t param_id;
-
-int8_t some_var = 0;
-
-void setup()
-{
-	// Register a callback that is called when a configurable group address is receiving a telegram
-  	knx.callback_register("Set/Get callback", my_callback);
-	knx.callback_register("Write callback", my_other_callback);
-
-	int default_val = 21;
-	param_id = knx.config_register_int("My Parameter", default_val);
-
-	// Register a configurable group address for sending out answers
-	my_GA = knx.config_register_ga("Answer GA");
-
-	knx.load(); // Try to load a config from EEPROM
-
-	WiFi.begin(ssid, pass);
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-	}
-
-	#ifdef ESP32
-    Network.setDefaultInterface(WiFi.STA);
-#endif
-    knx.start(); // Start after the chosen network interface has an IPv4 address.
-}
-
-void loop()
-{
-	knx.loop();
-}
-
-
-void my_callback(message_t const &msg, void *arg)
-{
-	switch (msg.ct)
-	{
-	case KNX_CT_WRITE:
-		// Save received data
-		some_var = knx.data_to_1byte_int(msg.data);
-		break;
-	case KNX_CT_READ:
-		// Answer with saved data
-		knx.answer_1byte_int(msg.received_on, some_var);
-		break;
-	}
-}
-
-void my_other_callback(message_t const &msg, void *arg)
-{
-	switch (msg.ct)
-	{
-	case KNX_CT_WRITE:
-		// Write an answer somewhere else
-		int value = knx.config_get_int(param_id);
-		address_t ga = knx.config_get_ga(my_GA);
-		knx.answer_1byte_int(ga, (int8_t)value);
-		break;
-	}
-}
-
+```sh
+git clone --branch dev https://github.com/betamoojw/ESP32_KNX_IP_Lib.git
+cd ESP32_KNX_IP_Lib
+pio run -d "Examples/knx ip test"
+pio run -d "Examples/knx ip test" -t upload
+pio device monitor -b 115200
 ```
+
+Before uploading, match the Ethernet PHY/pin settings in the example's
+`platformio.ini` to your board. The supplied setup uses a classic ESP32 with
+4 MiB flash and an external LAN8720 PHY; an ESP32 development board alone does
+not provide Ethernet. The example uses a larger application partition for
+provisioning support.
+
+On first boot, use Espressif's SoftAP provisioning app to configure Wi-Fi through
+`PROV_KNX`; the demonstration AP password and proof of possession are both
+`knx-setup`. Credentials are saved for subsequent boots. Ground GPIO4 during
+application startup to clear Wi-Fi credentials and provision again. Customize
+these settings for your device; see the [example guide](Examples/knx%20ip%20test/README.md).
+
+The example prefers Wi-Fi with a usable IPv4 address, falls back to Ethernet,
+and returns to Wi-Fi when it recovers. It automatically restarts KNX multicast
+routing after network loss, interface changes or IP changes. Both interfaces
+must reach the KNX multicast LAN. Its group addresses are:
+
+| Group address | Function |
+| --- | --- |
+| `5/5/10` | DPT9 temperature, sent every 10 seconds; handles reads and writes |
+| `5/5/11` | DPT1 switch controlling the GPIO2 LED |
+| `5/1/16` | External DPT9 temperature, read every 15 seconds |
+
+### Use it in your application
+
+For another PlatformIO project, use the ESP32 platform configuration above and
+add the library dependency:
+
+```ini
+lib_deps =
+    https://github.com/betamoojw/ESP32_KNX_IP_Lib.git#dev
+```
+
+The `dev` branch follows ongoing changes; use a commit ref for reproducible builds.
+For local development, use `symlink://<path-to-your-checkout>` instead. The included
+example already uses a relative symlink to this checkout.
+
+The following ESP32 sketch receives DPT1 writes at `1/1/1` and answers reads with
+the saved value. Copy
+[`NetworkConnection.h`](Examples/knx%20ip%20test/src/NetworkConnection.h) next to your
+`main.cpp` and use the example's Ethernet build flags and partition settings. This
+helper owns provisioning, interface selection and routing recovery; it is example
+code, not part of the public library API.
+
+```cpp
+#include <Arduino.h>
+#include <esp-knx-ip.h>
+#include "NetworkConnection.h"
+
+NetworkConnection network(knx);
+const address_t switchGa = ESPKNXIP::GA_to_address(1, 1, 1);
+uint8_t switchValue = 0;
+bool answerPending = false;
+
+void onSwitch(const message_t &message, void *) {
+    if (message.ct == KNX_CT_READ) {
+        answerPending = true;
+    } else if (message.ct == KNX_CT_WRITE) {
+        const uint8_t *payload;
+        size_t size;
+        if (ESPKNXIP::message_payload(message, 1, payload, size) == knxip::Result::Ok)
+            switchValue = payload[0];
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    knx.physical_address_set(ESPKNXIP::PA_to_address(1, 1, 100));
+    const callback_id_t id = knx.callback_register("Switch", onSwitch);
+    if (id == callback_id_t(-1)) {
+        Serial.println("Callback capacity exhausted");
+        return;
+    }
+    knx.callback_assign(id, switchGa);
+    network.begin();
+}
+
+void loop() {
+    if (network.update()) {
+        knx.loop();
+        if (answerPending &&
+            knx.send_dpt(switchGa, KNX_CT_ANSWER, 1, &switchValue, 1) == knxip::Result::Ok)
+            answerPending = false; // Retry on a later loop if busy or sending failed.
+    }
+    delay(1);
+}
+```
+
+Choose an individual address unique on your KNX installation and group addresses
+with matching DPTs. To send a switch write, use
+`knx.send_dpt(switchGa, KNX_CT_WRITE, 1, &switchValue, 1)` while connected and check
+the result. Registering a callback alone does not subscribe it: always call
+`callback_assign()` for each group address. Validate received payloads before
+using them, and keep calling `loop()` frequently.
+
+The helper above uses **routing**. For UDP tunnelling, initialize and select your
+network interface, call `start_tunnel(serverIp)`, and wait for the asynchronous
+connected state while calling `loop()`. After network loss, call `stop()` and
+restart once the network is ready. Do not combine the routing helper with a tunnel
+on the same client. See the [transport guide](docs/KNX_CLIENT_API.md#transport).
+ESP8266 applications use their Wi-Fi driver and the same KNX APIs; the provisioning/
+Ethernet helper is ESP32-specific. This fork has no browser configuration server.
 
 ## How to configure (buildtime)
 

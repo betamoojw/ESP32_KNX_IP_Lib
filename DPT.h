@@ -1,9 +1,3 @@
-/**
- * esp-knx-ip library for KNX/IP communication on an ESP8266
- * Author: Nico Weichbrodt <envy>
- * License: MIT
- */
-
 #ifndef ESP_KNX_DPT_H
 #define ESP_KNX_DPT_H
 #include <stdint.h>

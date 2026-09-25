@@ -1,9 +1,3 @@
-/**
- * esp-knx-ip library for KNX/IP communication on an ESP8266/ESP32
- * Author: Nico Weichbrodt <envy> Fix -> Schuma
- * License: MIT
- */
-
 #include "esp-knx-ip.h"
 
 ESPKNXIP::ESPKNXIP() : registered_callback_assignments(0), registered_callbacks(0), registered_configs(0), registered_feedbacks(0)
